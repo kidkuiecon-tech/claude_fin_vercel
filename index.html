@@ -237,7 +237,25 @@ For clients: "NVIDIA makes the engines that power all of AI — every major tech
               }
             }
           }
-          if (full === "") full = "No response received. Check ANTHROPIC_API_KEY in Vercel.";
+          // If we got no streamed content, try to read as JSON error
+          if (full === "") {
+            try {
+              const errRes = await fetch("/api/analyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  model: "claude-sonnet-4-20250514",
+                  max_tokens: 10,
+                  messages: [{ role:"user", content:"hi" }],
+                  stream: false
+                })
+              });
+              const errJson = await errRes.json();
+              full = "API Error: " + JSON.stringify(errJson);
+            } catch(e2) {
+              full = "No response received. Error: " + e2.message;
+            }
+          }
           setHistory(h=>[{id:Date.now(),tab,input:input.slice(0,40),output:full,ts:new Date().toLocaleTimeString()},...h].slice(0,8));
         } catch(err) {
           setOutput(`Error: ${err.message}`);

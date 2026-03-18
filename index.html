@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FinancialAnalystAI</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const FONTS = `@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');`;
+
+    const css = `
+      ${FONTS}
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      :root {
+        --bg: #08090d; --surface: #0f1117; --surface2: #161a22;
+        --border: #1e2330; --border2: #252d3d;
+        --accent: #00e5a0; --accent2: #0096ff; --accent3: #ff6b35;
+        --warn: #ffcc00; --sell: #ff4466; --buy: #00e5a0; --hold: #ffcc00;
+        --text: #e8ecf4; --text2: #8892a4; --text3: #4a5568;
+        --glow: 0 0 20px rgba(0,229,160,0.15);
+      }
+      body { background: var(--bg); font-family: 'DM Sans', sans-serif; color: var(--text); }
+      ::-webkit-scrollbar { width: 4px; }
+      ::-webkit-scrollbar-track { background: var(--bg); }
+      ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+      @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+      @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+      @keyframes spin { to { transform:rotate(360deg); } }
+      @keyframes ticker { 0%{transform:translateX(0);} 100%{transform:translateX(-50%);} }
+      @keyframes glowPulse { 0%,100%{box-shadow:0 0 10px rgba(0,229,160,0.1);} 50%{box-shadow:0 0 25px rgba(0,229,160,0.3);} }
+      .fade-in { animation: fadeIn 0.4s ease forwards; }
+      .badge-buy { background:rgba(0,229,160,0.12); color:var(--buy); border:1px solid rgba(0,229,160,0.3); }
+      .badge-hold { background:rgba(255,204,0,0.12); color:var(--hold); border:1px solid rgba(255,204,0,0.3); }
+      .badge-sell { background:rgba(255,68,102,0.12); color:var(--sell); border:1px solid rgba(255,68,102,0.3); }
+      .badge-watch { background:rgba(0,150,255,0.12); color:var(--accent2); border:1px solid rgba(0,150,255,0.3); }
+      .stream-cursor::after { content:'▋'; animation:pulse 0.8s infinite; color:var(--accent); }
+      input:focus { outline:none; border-color:var(--accent)!important; box-shadow:0 0 0 2px rgba(0,229,160,0.1)!important; }
+      .score-fill { height:100%; border-radius:2px; transition:width 1s ease; }
+    `;
+
+    function ScoreBar({ label, value, color="var(--accent)" }) {
+      return (
+        <div style={{marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+            <span style={{color:"var(--text2)",fontSize:11,fontFamily:"DM Mono"}}>{label}</span>
+            <span style={{color,fontSize:11,fontFamily:"DM Mono",fontWeight:500}}>{value}/100</span>
+          </div>
+          <div style={{height:4,background:"var(--border)",borderRadius:2}}>
+            <div className="score-fill" style={{width:`${value}%`,background:color}} />
+          </div>
+        </div>
+      );
+    }
+
+    function RatingBadge({ rating }) {
+      const r = (rating||"").toLowerCase();
+      const cls = r.includes("buy")?"badge-buy":r.includes("sell")?"badge-sell":r.includes("watch")?"badge-watch":"badge-hold";
+      return <span className={cls} style={{padding:"3px 10px",borderRadius:4,fontSize:11,fontFamily:"DM Mono",fontWeight:500,letterSpacing:1,textTransform:"uppercase"}}>{rating}</span>;
+    }
+
+    const TAPE = ["AAPL +1.2%","NVDA +3.4%","MSFT -0.3%","TSLA +2.1%","AMZN +0.8%","META +1.7%","GOOGL -0.5%","BRK.B +0.4%","JPM +1.1%","V +0.6%","SPY +0.9%","QQQ +1.3%","BTC +2.8%","GOLD -0.2%","OIL +1.5%"];
+    function TickerTape() {
+      const items=[...TAPE,...TAPE];
+      return (
+        <div style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",overflow:"hidden",height:28,display:"flex",alignItems:"center"}}>
+          <div style={{display:"flex",gap:40,animation:"ticker 30s linear infinite",whiteSpace:"nowrap"}}>
+            {items.map((t,i)=><span key={i} style={{fontFamily:"DM Mono",fontSize:11,color:t.includes("+")?"var(--accent)":"var(--sell)"}}>{t}</span>)}
+          </div>
+        </div>
+      );
+    }
+
+    function FormattedReport({ text }) {
+      if (!text) return null;
+      return (
+        <div>
+          {text.split("\n").map((line,i)=>{
+            if (line.startsWith("## ")) return <div key={i} style={{fontFamily:"Syne",fontSize:15,fontWeight:700,color:"var(--accent)",marginTop:20,marginBottom:8,borderBottom:"1px solid var(--border)",paddingBottom:6}}>{line.replace("## ","")}</div>;
+            if (line.startsWith("### ")) return <div key={i} style={{fontFamily:"Syne",fontSize:13,fontWeight:600,color:"var(--accent2)",marginTop:14,marginBottom:4}}>{line.replace("### ","")}</div>;
+            if (line.startsWith("**")&&line.endsWith("**")) return <div key={i} style={{fontWeight:600,color:"var(--text)",marginTop:6}}>{line.replace(/\*\*/g,"")}</div>;
+            if (line.startsWith("- ")||line.startsWith("• ")) return <div key={i} style={{paddingLeft:16,color:"var(--text2)",fontSize:13,marginBottom:2}}><span style={{color:"var(--accent3)",marginRight:6}}>›</span>{line.replace(/^[-•] /,"")}</div>;
+            if (line.includes("STRONG BUY")||line.includes("BUY")) return <div key={i} style={{color:"var(--buy)",fontFamily:"DM Mono",fontSize:13}}>{line}</div>;
+            if (line.includes("STRONG SELL")||line.includes("SELL")) return <div key={i} style={{color:"var(--sell)",fontFamily:"DM Mono",fontSize:13}}>{line}</div>;
+            if (line.includes("HOLD")||line.includes("WATCH")) return <div key={i} style={{color:"var(--hold)",fontFamily:"DM Mono",fontSize:13}}>{line}</div>;
+            if (line.trim()==="") return <div key={i} style={{height:8}}/>;
+            return <div key={i} style={{color:"var(--text)",fontSize:14,marginBottom:2}}>{line}</div>;
+          })}
+        </div>
+      );
+    }
+
+    function StreamingOutput({ text, loading }) {
+      const ref = useRef(null);
+      useEffect(()=>{ if(ref.current) ref.current.scrollTop=ref.current.scrollHeight; },[text]);
+      return (
+        <div ref={ref} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:8,padding:20,minHeight:200,maxHeight:520,overflowY:"auto",fontFamily:"DM Sans",fontSize:14,lineHeight:1.8,color:"var(--text)",whiteSpace:"pre-wrap"}}>
+          {loading&&!text&&(
+            <div style={{display:"flex",alignItems:"center",gap:10,color:"var(--text2)"}}>
+              <div style={{width:16,height:16,border:"2px solid var(--border)",borderTopColor:"var(--accent)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+              <span style={{fontFamily:"DM Mono",fontSize:12}}>Fetching market data & running analysis...</span>
+            </div>
+          )}
+          {text&&<div className={loading?"stream-cursor":""}><FormattedReport text={text}/></div>}
+        </div>
+      );
+    }
+
+    function buildSystemPrompt(mode) {
+      const base = `You are an elite institutional equity analyst with expertise in fundamental, technical, and quantitative analysis. You produce concise, data-driven reports using real-world financial knowledge up to your training cutoff. Format output with ## for section headers, ### for sub-headers, and bullet points with -. Never fabricate specific numbers you're unsure of; give ranges or directional assessments instead.`;
+      if (mode==="deepdive") return base+`\n\nDEEP DIVE REPORT FORMAT:\n\n## [TICKER] — [Company Name] | [RATING] | Score: [X]/100\n\n### Company Overview\n### Fundamental Analysis (Score: X/100)\n- Revenue growth, margins, FCF\n- Balance sheet, key ratios: PE, PB, EV/EBITDA, ROE\n\n### Technical Analysis (Score: X/100)\n- Price vs 50/200-day MAs, RSI, MACD\n- Support: 3 levels | Resistance: 3 levels\n\n### Sentiment & Positioning (Score: X/100)\n- Analyst consensus, avg price target\n- Insider activity, short interest\n\n### Entry & Exit Strategy\n- Entry 1/2/3, Target 1/2/3, Stop Loss, Risk:Reward\n\n### Key Catalysts (Bull Case)\n### Key Risks (Bear Case)\n### Final Verdict\nConfidence: STRONG / MODERATE / WEAK`;
+      if (mode==="scanner") return base+`\n\nOPPORTUNITY SCANNER: Find 5 portfolio adds + 5 swing trades.\n\n## Market Conditions Overview\n## Top 5 Portfolio Adds\n### [RANK]. [TICKER] — [Name] | [RATING] | Score: X/100\n- Why now, Entry/Target/Stop/R:R, Key catalyst\n## Top 5 Swing Trades\n### [RANK]. [TICKER] — Setup, Entry/Target/Stop/R:R, Time horizon\n## Sectors to Watch\n## Sectors to Avoid`;
+      if (mode==="portfolio") return base+`\n\nPORTFOLIO REVIEW:\n## Portfolio Health Summary\n## Holdings Analysis\n### [TICKER] — [Rating] | Score: X/100\n- Action: BUY MORE/HOLD/TRIM/SELL\n- Thesis status, Entry 1/2/3, Target 1/2, Stop, Key risk\n## Portfolio Optimization Suggestions\n## Hedging Ideas`;
+      return base;
+    }
+
+    const NVDA_REPORT = `## NVDA — NVIDIA Corporation | STRONG BUY | Score: 82/100
+
+Current Price: $183.22 (March 16, 2026)  ·  Market Cap: $4.5T  ·  Exchange: NASDAQ
+
+## Fundamental Analysis (Score: 85/100)
+
+NVIDIA's FY2026 revenue reached $215.94 billion — up 65.5% year-over-year. Data center revenue hit $51.2 billion in the most recent quarter, up 66% YoY. Gross margins remain elite, underpinned by the CUDA software moat.
+
+- P/E: 36.8x — PEG well below 1.0 given growth rate
+- EV/EBITDA: ~30x — premium but justified by 65%+ revenue CAGR
+- ROC: Declined from ~111% to ~94% — worth monitoring
+- FY2026 EPS est.: $4.42/share (+50.9% YoY)
+
+## Technical Analysis (Score: 72/100)
+
+- 52-Week Range: $86.62 – $212.19 (near midpoint — not overbought)
+- Resistance: $182.57 / $185.42 / $212
+- Support: $175 / $168 / $160
+- RSI: ~52 — neutral, room to run
+- MACD: Mild sell signal on 3-month, short-term recovering post-GTC
+
+## Sentiment & Positioning (Score: 88/100)
+
+- Analyst Consensus: STRONG BUY — 38 Buy, 1 Hold, 0 Sell
+- Avg 12-month Price Target: $273.61 (+49% upside)
+- Recent Upgrades: Wedbush → $300, Citi → $300, Tigress → $360
+
+## Entry & Exit Strategy
+
+- Entry 1 (Aggressive):   $183  — GTC momentum catalyst
+- Entry 2 (Moderate):     $175  — Fib 38.2% support
+- Entry 3 (Conservative): $165  — Strong base
+- Target 1: $212  (+16%)
+- Target 2: $263  (+44% — analyst consensus)
+- Target 3: $300  (+64% — bull case)
+- Stop Loss: $168  (-8%)
+- Risk:Reward: 3.5:1
+
+## Key Catalysts (Bull Case)
+
+- GTC 2026: Vera CPU + Omniverse platform expansion
+- Jensen Huang targets $1T revenue through 2027
+- Sovereign AI: Global government demand buffer
+- ByteDance $2.5B buildout adds revenue visibility
+
+## Key Risks (Bear Case)
+
+- Hyperscaler capex plateau risk
+- US export controls on China (previously 20-25% of DC revenue)
+- Competition: AMD, custom silicon (Google TPU, AWS Trainium)
+- ROC compression as capital base scales
+
+## Final Verdict
+
+STRONG BUY — Composite Score: 82/100 — Confidence: STRONG
+
+At $183 with a consensus target of $263+, risk/reward is 3.5:1 — well above the 2:1 minimum threshold.
+
+For clients: "NVIDIA makes the engines that power all of AI — every major tech company is paying them, and that is not changing anytime soon."`;
+
+    function App() {
+      const [tab, setTab] = useState("deepdive");
+      const [input, setInput] = useState("NVDA");
+      const [focus, setFocus] = useState("");
+      const [output, setOutput] = useState(NVDA_REPORT);
+      const [loading, setLoading] = useState(false);
+      const [showExample, setShowExample] = useState(true);
+      const [history, setHistory] = useState([{id:1,tab:"deepdive",input:"NVDA — Example",output:NVDA_REPORT,ts:"Pre-loaded"}]);
+
+      const placeholders = { deepdive:"Enter ticker(s) e.g. AAPL, NVDA, MSFT", scanner:"e.g. growth stocks, beaten-down value...", portfolio:"e.g. AAPL 50 shares, MSFT 30 shares..." };
+      const labels = { deepdive:"Stock Deep Dive", scanner:"Opportunity Scanner", portfolio:"Portfolio Review" };
+      const descriptions = { deepdive:"Full analyst-grade report: fundamentals, technicals, sentiment, entry/exit levels & rating", scanner:"AI scans for top Portfolio Adds + Swing Trades", portfolio:"Hold/Trim/Sell verdicts + updated entry/exit targets" };
+
+      async function runAnalysis() {
+        if (!input.trim()) return;
+        setLoading(true); setOutput(""); setShowExample(false);
+        const userMsg = tab==="deepdive" ? `Run a full deep dive analysis on: ${input.toUpperCase()}`
+          : tab==="scanner" ? `Scan the market for best opportunities. Focus: ${focus||"balanced"}. Context: ${input||"general"}`
+          : `Review this portfolio: ${input}`;
+        try {
+          // ✅ Calls YOUR proxy at /api/analyze — not Anthropic directly
+          const res = await fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "claude-sonnet-4-20250514",
+              max_tokens: 1000,
+              system: buildSystemPrompt(tab),
+              messages: [{ role:"user", content:userMsg }],
+              stream: true
+            })
+          });
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let full = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            for (const line of decoder.decode(value).split("\n")) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.type==="content_block_delta"&&data.delta?.text) { full+=data.delta.text; setOutput(full); }
+                } catch {}
+              }
+            }
+          }
+          setHistory(h=>[{id:Date.now(),tab,input:input.slice(0,40),output:full,ts:new Date().toLocaleTimeString()},...h].slice(0,8));
+        } catch(err) {
+          setOutput(`Error: ${err.message}`);
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      return (
+        <>
+          <style>{css}</style>
+          <div style={{minHeight:"100vh",background:"var(--bg)",display:"flex",flexDirection:"column"}}>
+            {/* Header */}
+            <div style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:32,height:32,background:"var(--accent)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",animation:"glowPulse 3s ease infinite"}}>
+                  <span style={{fontFamily:"Syne",fontWeight:800,fontSize:14,color:"#08090d"}}>FA</span>
+                </div>
+                <div>
+                  <div style={{fontFamily:"Syne",fontWeight:800,fontSize:16,letterSpacing:-0.5}}>FinancialAnalyst<span style={{color:"var(--accent)"}}>AI</span></div>
+                  <div style={{fontFamily:"DM Mono",fontSize:10,color:"var(--text3)",marginTop:-2}}>INSTITUTIONAL-GRADE ANALYSIS ENGINE</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:20,alignItems:"center"}}>
+                <div style={{fontFamily:"DM Mono",fontSize:11,color:"var(--text3)"}}>{new Date().toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}</div>
+                <div style={{padding:"4px 10px",background:"rgba(0,229,160,0.08)",border:"1px solid rgba(0,229,160,0.2)",borderRadius:20,fontFamily:"DM Mono",fontSize:10,color:"var(--accent)"}}>● LIVE</div>
+              </div>
+            </div>
+            <TickerTape/>
+            <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+              {/* Sidebar */}
+              <div style={{width:220,background:"var(--surface)",borderRight:"1px solid var(--border)",padding:"20px 0",display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+                <div style={{padding:"0 16px 12px",fontFamily:"DM Mono",fontSize:10,color:"var(--text3)",letterSpacing:1}}>ANALYSIS MODES</div>
+                {[{id:"deepdive",icon:"◎",label:"Deep Dive",sub:"1–10 tickers"},{id:"scanner",icon:"⊕",label:"Opportunity Scanner",sub:"Daily ideas"},{id:"portfolio",icon:"⊞",label:"Portfolio Review",sub:"Holdings review"}].map(m=>(
+                  <button key={m.id} onClick={()=>{setTab(m.id);setOutput("");}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",border:"none",cursor:"pointer",background:tab===m.id?"rgba(0,229,160,0.08)":"transparent",borderLeft:tab===m.id?"2px solid var(--accent)":"2px solid transparent",textAlign:"left",transition:"all 0.15s"}}>
+                    <span style={{color:tab===m.id?"var(--accent)":"var(--text3)",fontSize:16}}>{m.icon}</span>
+                    <div>
+                      <div style={{fontFamily:"DM Sans",fontSize:13,fontWeight:500,color:tab===m.id?"var(--text)":"var(--text2)"}}>{m.label}</div>
+                      <div style={{fontFamily:"DM Mono",fontSize:10,color:"var(--text3)"}}>{m.sub}</div>
+                    </div>
+                  </button>
+                ))}
+                {history.length>0&&<>
+                  <div style={{padding:"20px 16px 8px",fontFamily:"DM Mono",fontSize:10,color:"var(--text3)",letterSpacing:1}}>RECENT</div>
+                  {history.slice(0,5).map(h=>(
+                    <button key={h.id} onClick={()=>setOutput(h.output)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"transparent",textAlign:"left"}}>
+                      <span style={{color:"var(--text3)",fontSize:10}}>{h.tab==="deepdive"?"◎":h.tab==="scanner"?"⊕":"⊞"}</span>
+                      <div>
+                        <div style={{fontFamily:"DM Mono",fontSize:11,color:"var(--text2)"}}>{h.input}</div>
+                        <div style={{fontFamily:"DM Mono",fontSize:10,color:"var(--text3)"}}>{h.ts}</div>
+                      </div>
+                    </button>
+                  ))}
+                </>}
+              </div>
+
+              {/* Main */}
+              <div style={{flex:1,padding:24,overflowY:"auto",display:"flex",flexDirection:"column",gap:16}}>
+                <div className="fade-in" style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:10,padding:"16px 20px",display:"flex",alignItems:"center",gap:16}}>
+                  <div style={{width:44,height:44,background:"var(--surface2)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",border:"1px solid var(--border2)",fontSize:20}}>{tab==="deepdive"?"◎":tab==="scanner"?"⊕":"⊞"}</div>
+                  <div>
+                    <div style={{fontFamily:"Syne",fontWeight:700,fontSize:18}}>{labels[tab]}</div>
+                    <div style={{fontFamily:"DM Sans",fontSize:13,color:"var(--text2)",marginTop:2}}>{descriptions[tab]}</div>
+                  </div>
+                </div>
+
+                <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:10,padding:20,display:"flex",flexDirection:"column",gap:14}}>
+                  {tab==="scanner"&&(
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                      {["Growth","Value","Dividend","Momentum","Small Cap","Tech","Healthcare","Energy"].map(f=>(
+                        <button key={f} onClick={()=>setFocus(f)} style={{padding:"5px 12px",border:`1px solid ${focus===f?"var(--accent)":"var(--border)"}`,background:focus===f?"rgba(0,229,160,0.1)":"var(--surface2)",color:focus===f?"var(--accent)":"var(--text2)",borderRadius:20,fontSize:12,cursor:"pointer",fontFamily:"DM Sans",transition:"all 0.15s"}}>{f}</button>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{display:"flex",gap:10}}>
+                    <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&runAnalysis()} placeholder={placeholders[tab]} style={{flex:1,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:"11px 16px",color:"var(--text)",fontFamily:"DM Mono",fontSize:13,transition:"all 0.2s"}}/>
+                    <button onClick={runAnalysis} disabled={loading} style={{padding:"11px 24px",background:loading?"var(--border)":"var(--accent)",border:"none",borderRadius:8,cursor:loading?"not-allowed":"pointer",color:loading?"var(--text3)":"#08090d",fontFamily:"Syne",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:8,transition:"all 0.2s",whiteSpace:"nowrap",boxShadow:loading?"none":"var(--glow)"}}>
+                      {loading?(<><div style={{width:14,height:14,border:"2px solid #333",borderTopColor:"var(--text3)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>Analyzing...</>):"Run Analysis →"}
+                    </button>
+                  </div>
+                  {tab==="deepdive"&&(
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      <span style={{fontFamily:"DM Mono",fontSize:11,color:"var(--text3)",paddingTop:1}}>Quick:</span>
+                      {["AAPL","NVDA","MSFT","TSLA","AMZN","META","GOOGL","JPM","SPY","BRK.B"].map(t=>(
+                        <button key={t} onClick={()=>setInput(prev=>prev?prev+", "+t:t)} style={{padding:"3px 10px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:4,color:"var(--text2)",fontSize:11,fontFamily:"DM Mono",cursor:"pointer"}}>{t}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {(output||loading)&&(
+                  <div className="fade-in">
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{fontFamily:"DM Mono",fontSize:11,color:"var(--text3)"}}>{loading?"● GENERATING ANALYSIS...":"✓ ANALYSIS COMPLETE"}</div>
+                        {showExample&&!loading&&<span style={{padding:"2px 8px",background:"rgba(0,150,255,0.1)",border:"1px solid rgba(0,150,255,0.3)",borderRadius:4,fontFamily:"DM Mono",fontSize:10,color:"var(--accent2)"}}>EXAMPLE · NVDA</span>}
+                      </div>
+                      {!loading&&output&&<button onClick={()=>navigator.clipboard.writeText(output)} style={{padding:"4px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:4,color:"var(--text2)",fontSize:11,fontFamily:"DM Mono",cursor:"pointer"}}>Copy Report</button>}
+                    </div>
+                    <StreamingOutput text={output} loading={loading}/>
+                  </div>
+                )}
+
+                {!output&&!loading&&(
+                  <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,textAlign:"center",gap:16}}>
+                    <div style={{width:60,height:60,border:"1px solid var(--border)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:"var(--text3)"}}>{tab==="deepdive"?"◎":tab==="scanner"?"⊕":"⊞"}</div>
+                    <div style={{fontFamily:"Syne",fontWeight:600,fontSize:16,color:"var(--text2)"}}>Ready to analyze</div>
+                    <div style={{fontFamily:"DM Sans",fontSize:13,color:"var(--text3)",maxWidth:360}}>
+                      {tab==="deepdive"&&"Enter one or more tickers above for a comprehensive institutional-grade report."}
+                      {tab==="scanner"&&"Select a focus area and hit Run to discover today's best opportunities."}
+                      {tab==="portfolio"&&"Paste your holdings and get actionable hold/trim/sell recommendations."}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Panel */}
+              <div style={{width:210,background:"var(--surface)",borderLeft:"1px solid var(--border)",padding:16,display:"flex",flexDirection:"column",gap:14,flexShrink:0,overflowY:"auto"}}>
+                {showExample&&(
+                  <div style={{border:"1px solid rgba(0,229,160,0.25)",borderRadius:8,padding:12,background:"rgba(0,229,160,0.04)",animation:"glowPulse 3s ease infinite"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                      <span style={{fontFamily:"Syne",fontWeight:700,fontSize:15}}>NVDA</span>
+                      <RatingBadge rating="STRONG BUY"/>
+                    </div>
+                    <div style={{fontFamily:"DM Mono",fontSize:18,fontWeight:500,color:"var(--text)",marginBottom:2}}>$183.22</div>
+                    <div style={{fontFamily:"DM Mono",fontSize:10,color:"var(--accent)",marginBottom:10}}>+1.65% · Mar 16, 2026</div>
+                    <div style={{fontFamily:"DM Mono",fontSize:10,color:"var(--text3)",marginBottom:6,letterSpacing:1}}>COMPOSITE SCORE</div>
+                    <div style={{display:"flex",justifyContent:"center",marginBottom:10}}>
+                      <div style={{width:64,height:64,borderRadius:"50%",border:"3px solid var(--accent)",display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,229,160,0.06)",boxShadow:"0 0 16px rgba(0,229,160,0.2)"}}>
+                        <span style={{fontFamily:"Syne",fontWeight:800,fontSize:22,color:"var(--accent)"}}>82</span>
+                      </div>
+                    </div>
+                    <ScoreBar label="Fundamental (40%)" value={85} color="var(--accent)"/>
+                    <ScoreBar label="Technical (30%)" value={72} color="var(--accent2)"/>
+                    <ScoreBar label="Sentiment (30%)" value={88} color="var(--accent3)"/>
+                  </div>
+                )}
+                {showExample&&(
+                  <div style={{border:"1px solid var(--border)",borderRadius:8,padding:12}}>
+                    <div style={{fontFamily:"DM Mono",fontSize:10,color:"var(--text3)",letterSpacing:1,marginBottom:10}}>KEY STATS</div>
+                    {[{label:"Market Cap",value:"$4.5T"},{label:"P/E Ratio",value:"36.8x"},{label:"Rev Growth",value:"+65.5%"},{label:"52W Range",value:"$86–$212"},{label:"Analyst PT",value:"$273.61"},{label:"R:R Ratio",value:"3.5:1"}].map(s=>(
+                      <div key={s.label} style={{display:"flex",justifyContent:"space-between",marginBottom:6,paddingBottom:6,borderBottom:"1px solid var(--border)"}}>
+                        <span style={{fontFamily:"DM Mono",fontSize:10,color:"var(--text3)"}}>{s.label}</span>
+                        <span style={{fontFamily:"DM Mono",fontSize:11,color:"var(--text)"}}>{s.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!showExample&&(
+                  <div style={{border:"1px solid var(--border)",borderRadius:8,padding:12}}>
+                    <div style={{fontFamily:"DM Mono",fontSize:10,color:"var(--text3)",letterSpacing:1,marginBottom:10}}>SCORE GUIDE</div>
+                    {[{label:"75–100",rating:"BUY",color:"var(--buy)"},{label:"40–74",rating:"HOLD",color:"var(--hold)"},{label:"0–39",rating:"SELL",color:"var(--sell)"}].map(s=>(
+                      <div key={s.label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <span style={{fontFamily:"DM Mono",fontSize:11,color:"var(--text3)"}}>{s.label}</span>
+                        <span style={{fontFamily:"DM Mono",fontSize:10,color:s.color,padding:"2px 8px",border:`1px solid ${s.color}`,background:`${s.color}15`,borderRadius:3}}>{s.rating}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{padding:10,background:"rgba(255,204,0,0.05)",border:"1px solid rgba(255,204,0,0.15)",borderRadius:8,fontFamily:"DM Sans",fontSize:10,color:"var(--text3)",lineHeight:1.6}}>
+                  ⚠ AI-generated research only. Not financial advice. Always do your own due diligence.
+                </div>
+                <div style={{fontFamily:"DM Mono",fontSize:10,color:"var(--text3)",lineHeight:1.6}}>Powered by Claude AI + Financial Analysis Skill v1.0</div>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>

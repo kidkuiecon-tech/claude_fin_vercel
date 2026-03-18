@@ -22,6 +22,15 @@ module.exports = async function handler(req, res) {
       body: JSON.stringify(req.body),
     });
 
+    // If Anthropic returns an error, forward it clearly
+    if (!anthropicRes.ok) {
+      const errorText = await anthropicRes.text();
+      console.error("Anthropic error:", anthropicRes.status, errorText);
+      return res.status(anthropicRes.status).json({ 
+        error: `Anthropic API error ${anthropicRes.status}: ${errorText}` 
+      });
+    }
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -37,6 +46,7 @@ module.exports = async function handler(req, res) {
 
     res.end();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Proxy error:", err);
+    return res.status(500).json({ error: err.message });
   }
 };

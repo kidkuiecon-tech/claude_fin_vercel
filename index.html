@@ -215,18 +215,29 @@ For clients: "NVIDIA makes the engines that power all of AI — every major tech
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
           let full = "";
+          let buffer = "";
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            for (const line of decoder.decode(value).split("\n")) {
-              if (line.startsWith("data: ")) {
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop();
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (trimmed.startsWith("data: ")) {
+                const jsonStr = trimmed.slice(6).trim();
+                if (jsonStr === "[DONE]") continue;
                 try {
-                  const data = JSON.parse(line.slice(6));
-                  if (data.type==="content_block_delta"&&data.delta?.text) { full+=data.delta.text; setOutput(full); }
+                  const data = JSON.parse(jsonStr);
+                  if (data.type === "content_block_delta" && data.delta?.text) {
+                    full += data.delta.text;
+                    setOutput(full);
+                  }
                 } catch {}
               }
             }
           }
+          if (full === "") full = "No response received. Check ANTHROPIC_API_KEY in Vercel.";
           setHistory(h=>[{id:Date.now(),tab,input:input.slice(0,40),output:full,ts:new Date().toLocaleTimeString()},...h].slice(0,8));
         } catch(err) {
           setOutput(`Error: ${err.message}`);

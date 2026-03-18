@@ -1,22 +1,17 @@
-export default async function handler(req, res) {
-  // Only allow POST
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // CORS headers — allow your frontend origin
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: "ANTHROPIC_API_KEY is not set in environment variables." });
+    return res.status(500).json({ error: "ANTHROPIC_API_KEY is not set." });
   }
 
   try {
-    const body = req.body;
-
-    // Forward request to Anthropic, with streaming
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -24,10 +19,9 @@ export default async function handler(req, res) {
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(req.body),
     });
 
-    // Stream the response back to the client
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -43,8 +37,6 @@ export default async function handler(req, res) {
 
     res.end();
   } catch (err) {
-    console.error("Proxy error:", err);
     res.status(500).json({ error: err.message });
   }
-}
-
+};
